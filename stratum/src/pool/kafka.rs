@@ -1,3 +1,4 @@
+use bincode::serialize;
 use std::collections::HashMap;
 use std::io;
 use std::ops::Deref;
@@ -13,6 +14,7 @@ use kafka::client::{
 };
 use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Share {
     height: u64,
     job_id: u64,
@@ -20,11 +22,17 @@ pub struct Share {
     server_id: String,
     worker_id: usize,
     worker_addr: String,
-    message: String,
 }
 
 impl Share {
-    pub fn new(height: u64, job_id: u64, nonce: u64, server_id: String, worker_id: usize, worker_addr: String) -> Share {
+    pub fn new(
+        height: u64,
+        job_id: u64,
+        nonce: u64,
+        server_id: String,
+        worker_id: usize,
+        worker_addr: String,
+    ) -> Share {
         Share {
             height: height,
             job_id: job_id,
@@ -32,17 +40,21 @@ impl Share {
             server_id: server_id.clone(),
             worker_addr: worker_addr.clone(),
             worker_id: worker_id,
-            message: format!(
-                "share(jobId: {}, ip: {}, sserver: {}, height: {}, userId: {})",
-                job_id, worker_addr, server_id, height, worker_id
-            ),
         }
     }
 }
 
-impl AsBytes for Share {
+struct ShareWrapper(Vec<u8>);
+
+impl ShareWrapper {
+    fn new(share: &Share) -> Self {
+        ShareWrapper(serialize(share).unwrap())
+    }
+}
+
+impl AsBytes for ShareWrapper {
     fn as_bytes(&self) -> &[u8] {
-        self.message.as_bytes()
+        &self.0
     }
 }
 
@@ -159,7 +171,8 @@ impl GrinProducer for KafkaProducer {
     }
 
     fn send_data(&mut self, share: Share) -> Result<()> {
-        let record = Record::from_value(&self.topic, share).with_partition(self.partitions);
+        let record = Record::from_value(&self.topic, ShareWrapper::new(&share))
+            .with_partition(self.partitions);
         self.client.send(&record)?;
         Ok(())
     }
