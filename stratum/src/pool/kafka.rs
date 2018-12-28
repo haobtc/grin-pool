@@ -32,6 +32,7 @@ impl Share {
         server_id: String,
         worker_id: usize,
         worker_addr: String,
+        full_name: String,
     ) -> Share {
         Share {
             height: height,
@@ -137,6 +138,7 @@ pub trait GrinProducer {
 }
 
 impl GrinProducer for KafkaProducer {
+
     fn from_config(cfg: &ProducerConfig) -> KafkaProducer {
         let client = KafkaClient::new(cfg.brokers.clone());
         let producer = {

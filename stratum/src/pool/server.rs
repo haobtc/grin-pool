@@ -386,6 +386,8 @@ impl Server {
                                                     // }
                                                     let params: SubmitParams =
                                                         serde_json::from_value(response).unwrap();
+                                                    let difficulty = workers_l[w_id].status.difficuly;
+                                                    let fullname = workers_l[w_id].login.unwrap().login;
                                                     let share = Share::new(
                                                         params.get_height(),
                                                         params.job_id,
