@@ -22,6 +22,9 @@ pub struct Share {
     server_id: String,
     worker_id: usize,
     worker_addr: String,
+    difficulty: u64,
+    fullname: String,
+    blkbits: u32,
 }
 
 impl Share {
@@ -32,15 +35,20 @@ impl Share {
         server_id: String,
         worker_id: usize,
         worker_addr: String,
-        full_name: String,
+        difficulty: u64,
+        fullname: String,
+        blkbits: u32,
     ) -> Share {
         Share {
-            height: height,
-            job_id: job_id,
-            nonce: nonce,
-            server_id: server_id.clone(),
-            worker_addr: worker_addr.clone(),
-            worker_id: worker_id,
+            height,
+            job_id,
+            nonce,
+            worker_id,
+            fullname,
+            difficulty,
+            blkbits,
+            server_id,
+            worker_addr,
         }
     }
 }

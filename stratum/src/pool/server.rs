@@ -386,18 +386,19 @@ impl Server {
                                                     // }
                                                     let params: SubmitParams =
                                                         serde_json::from_value(response).unwrap();
-                                                    let difficulty = workers_l[w_id].status.difficuly;
-                                                    let fullname = workers_l[w_id].login.unwrap().login;
                                                     let share = Share::new(
-                                                        params.get_height(),
-                                                        params.job_id,
-                                                        params.nonce,
-                                                        self.id.clone(),
-                                                        w_id,
-                                                        workers_l[w_id].addr.clone(),
+                                                        params.get_height(),                   // height
+                                                        params.job_id,                         // job id
+                                                        params.nonce,                          // nonce
+                                                        self.id.clone(),                       // sserver id
+                                                        w_id,                                  // worker id
+                                                        workers_l[w_id].addr.clone(),          // worker_addr IP:PORT
+                                                        workers_l[w_id].status.difficulty,     // difficulty
+                                                        workers_l[w_id].login(),               // fullname
+                                                        params.get_blkbits(),                  // blkbits
                                                     );
 
-                                                    //
+                                                    self.kafka.send_data(share);
                                                 }
                                                 None => {
                                                     // The share was not accepted, check RpcError.code for reason
