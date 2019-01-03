@@ -382,43 +382,37 @@ impl Server {
                                                         LOGGER,
                                                         "setting stats for worker id {:?}", res.id
                                                     );
-                                                    let resp: String =
-                                                        serde_json::from_value(response).unwrap();
-                                                    if resp == String::from("ok") {
-                                                        workers_l[w_id].status.accepted += 1;
-                                                        debug!(LOGGER, "Server accepted our share");
-                                                        workers_l[w_id].send_ok(res.method.clone());
-                                                    } else {
-                                                        assert_eq!("block", &resp[..5]);
-                                                        // After share was accepted, send share to kafka
-                                                        // params has share informations
-                                                        // {
-                                                        //    height, job_id, nonce, edge_bits(what?),
-                                                        //    pow
-                                                        // }
+                                                    workers_l[w_id].status.accepted += 1;
+                                                    debug!(LOGGER, "Server accepted our share");
+                                                    workers_l[w_id].send_ok(res.method.clone());
+                                                    // After share was accepted, send share to kafka
+                                                    // params has share informations
+                                                    // {
+                                                    //    height, job_id, nonce, edge_bits(what?),
+                                                    //    pow
+                                                    // }
 
-                                                        // but we can't get submit params from response.
-                                                        // we should get share informations
+                                                    // but we can't get submit params from response.
+                                                    // we should get share informations
 
-                                                        // response has two type, one is ok the
-                                                        // other is "block - {HASH}"
-                                                        // ok just mean node accept the share
-                                                        // block - {HASH} mean valid the share and
-                                                        // success
-                                                        let worker: &Worker = &workers_l[w_id];
-                                                        let share = Share::new(
-                                                            self.id.clone(),          // sserver id
-                                                            w_id,                     // worker id
-                                                            worker.addr.clone(), // worker_addr IP:PORT
-                                                            worker.status.difficulty, // difficulty
-                                                            worker.login(),      // fullname
-                                                            SubmitResult::Accept,
-                                                            worker.status.accepted,
-                                                            worker.status.rejected,
-                                                        );
+                                                    // response has two type, one is ok the
+                                                    // other is "block - {HASH}"
+                                                    // ok just mean node accept the share
+                                                    // block - {HASH} mean valid the share and
+                                                    // success
+                                                    let worker: &Worker = &workers_l[w_id];
+                                                    let share = Share::new(
+                                                        self.id.clone(),          // sserver id
+                                                        w_id,                     // worker id
+                                                        worker.addr.clone(), // worker_addr IP:PORT
+                                                        worker.status.difficulty, // difficulty
+                                                        worker.login(),      // fullname
+                                                        SubmitResult::Accept,
+                                                        worker.status.accepted,
+                                                        worker.status.rejected,
+                                                    );
 
-                                                        self.kafka.send_data(share);
-                                                    }
+                                                    self.kafka.send_data(share);
                                                 }
                                                 None => {
                                                     // The share was not accepted, check RpcError.code for reason
@@ -445,7 +439,21 @@ impl Server {
                                                                 "Server rejected share as invalid"
                                                             );
                                                         }
-                                                    }
+                                                    };
+
+                                                    let worker: &Worker = &workers_l[w_id];
+                                                    let share = Share::new(
+                                                        self.id.clone(),          // sserver id
+                                                        w_id,                     // worker id
+                                                        worker.addr.clone(), // worker_addr IP:PORT
+                                                        worker.status.difficulty, // difficulty
+                                                        worker.login(),      // fullname
+                                                        SubmitResult::Reject,
+                                                        worker.status.accepted,
+                                                        worker.status.rejected,
+                                                    );
+
+                                                    self.kafka.send_data(share);
                                                 }
                                             };
                                             return Ok(res.method.clone());
