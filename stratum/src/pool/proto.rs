@@ -70,16 +70,6 @@ pub struct SubmitParams {
     pub pow: Vec<u32>,
 }
 
-impl SubmitParams {
-    pub fn get_height(&self) -> u64 {
-        self.height
-    }
-
-    pub fn get_blkbits(&self) -> u32 {
-        self.edge_bits
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobTemplate {
     pub height: u64,

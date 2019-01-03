@@ -14,41 +14,45 @@ use kafka::client::{
 };
 use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
 
+#[repr(u8)]
+#[derive(Debug)]
+pub enum SubmitResult {
+    Accept = 0,
+    Reject,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Share {
-    height: u64,
-    job_id: u64,
-    nonce: u64,
     server_id: String,
     worker_id: usize,
     worker_addr: String,
     difficulty: u64,
     fullname: String,
-    blkbits: u32,
+    result: u8,
+    accepted: u64,
+    rejected: u64,
 }
 
 impl Share {
     pub fn new(
-        height: u64,
-        job_id: u64,
-        nonce: u64,
         server_id: String,
         worker_id: usize,
         worker_addr: String,
         difficulty: u64,
         fullname: String,
-        blkbits: u32,
+        result: SubmitResult,
+        accepted: u64,
+        rejected: u64,
     ) -> Share {
         Share {
-            height,
-            job_id,
-            nonce,
             worker_id,
             fullname,
             difficulty,
-            blkbits,
             server_id,
             worker_addr,
+            accepted,
+            rejected,
+            result: result as u8,
         }
     }
 }
@@ -73,6 +77,7 @@ pub struct KafkaProducer {
     pub partitions: i32,
 }
 
+#[derive(Debug, Clone)]
 struct KafkaProducerConfig {
     compression: Compression,
     required_acks: RequiredAcks,
@@ -146,7 +151,6 @@ pub trait GrinProducer {
 }
 
 impl GrinProducer for KafkaProducer {
-
     fn from_config(cfg: &ProducerConfig) -> KafkaProducer {
         let client = KafkaClient::new(cfg.brokers.clone());
         let producer = {

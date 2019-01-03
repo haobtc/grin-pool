@@ -20,6 +20,7 @@ use std::time::Instant;
 use std::{thread, time};
 
 use pool::config::{Config, NodeConfig, PoolConfig, WorkerConfig};
+use pool::kafka::{GrinProducer, KafkaProducer, Share, SubmitResult};
 use pool::logger::LOGGER;
 use pool::proto::{JobTemplate, RpcError, SubmitParams};
 use pool::server::Server;
@@ -241,7 +242,20 @@ impl Pool {
                             );
                             worker.status.rejected += 1;
                             worker.block_status.rejected += 1;
-                            continue; // Dont process this share anymore
+                            // Dont process this share anymore, but send information to kafka
+
+                            let send_share = Share::new(
+                                self.server.get_id(),
+                                worker.id,
+                                worker.addr.clone(),
+                                worker.status.difficulty,
+                                worker.login(),
+                                SubmitResult::Reject,
+                                worker.status.accepted,
+                                worker.status.rejected,
+                            );
+                            self.server.get_kafka().send_data(send_share);
+                            continue;
                         } else {
                             self.duplicates.insert(share.pow.clone(), worker.id());
                         }

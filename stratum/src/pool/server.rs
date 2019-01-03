@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::{thread, time};
 
 use pool::config::{Config, NodeConfig, PoolConfig, WorkerConfig};
-use pool::kafka::{GrinProducer, KafkaProducer, Share};
+use pool::kafka::{GrinProducer, KafkaProducer, Share, SubmitResult};
 use pool::logger::LOGGER;
 use pool::proto::{
     JobTemplate, LoginParams, RpcError, StratumProtocol, SubmitParams, WorkerStatus,
@@ -47,6 +47,14 @@ pub struct Server {
 }
 
 impl Server {
+    pub fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn get_kafka(&mut self) -> &mut KafkaProducer {
+        &mut self.kafka
+    }
+
     /// Creates a new Stratum Server Connection.
     pub fn new(cfg: Config) -> Server {
         Server {
@@ -374,31 +382,43 @@ impl Server {
                                                         LOGGER,
                                                         "setting stats for worker id {:?}", res.id
                                                     );
-                                                    workers_l[w_id].status.accepted += 1;
-                                                    debug!(LOGGER, "Server accepted our share");
-                                                    workers_l[w_id].send_ok(res.method.clone());
-
-                                                    // After share was accepted, send share to kafka
-                                                    // params has share informations
-                                                    // {
-                                                    //    height, job_id, nonce, edge_bits(what?),
-                                                    //    pow
-                                                    // }
-                                                    let params: SubmitParams =
+                                                    let resp: String =
                                                         serde_json::from_value(response).unwrap();
-                                                    let share = Share::new(
-                                                        params.get_height(),                   // height
-                                                        params.job_id,                         // job id
-                                                        params.nonce,                          // nonce
-                                                        self.id.clone(),                       // sserver id
-                                                        w_id,                                  // worker id
-                                                        workers_l[w_id].addr.clone(),          // worker_addr IP:PORT
-                                                        workers_l[w_id].status.difficulty,     // difficulty
-                                                        workers_l[w_id].login(),               // fullname
-                                                        params.get_blkbits(),                  // blkbits
-                                                    );
+                                                    if resp == String::from("ok") {
+                                                        workers_l[w_id].status.accepted += 1;
+                                                        debug!(LOGGER, "Server accepted our share");
+                                                        workers_l[w_id].send_ok(res.method.clone());
+                                                    } else {
+                                                        assert_eq!("block", &resp[..5]);
+                                                        // After share was accepted, send share to kafka
+                                                        // params has share informations
+                                                        // {
+                                                        //    height, job_id, nonce, edge_bits(what?),
+                                                        //    pow
+                                                        // }
 
-                                                    self.kafka.send_data(share);
+                                                        // but we can't get submit params from response.
+                                                        // we should get share informations
+
+                                                        // response has two type, one is ok the
+                                                        // other is "block - {HASH}"
+                                                        // ok just mean node accept the share
+                                                        // block - {HASH} mean valid the share and
+                                                        // success
+                                                        let worker: &Worker = &workers_l[w_id];
+                                                        let share = Share::new(
+                                                            self.id.clone(),          // sserver id
+                                                            w_id,                     // worker id
+                                                            worker.addr.clone(), // worker_addr IP:PORT
+                                                            worker.status.difficulty, // difficulty
+                                                            worker.login(),      // fullname
+                                                            SubmitResult::Accept,
+                                                            worker.status.accepted,
+                                                            worker.status.rejected,
+                                                        );
+
+                                                        self.kafka.send_data(share);
+                                                    }
                                                 }
                                                 None => {
                                                     // The share was not accepted, check RpcError.code for reason
