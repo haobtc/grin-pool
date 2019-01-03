@@ -1,4 +1,4 @@
-use bincode::serialize;
+use bincode::{deserialize, serialize};
 use std::collections::HashMap;
 use std::io;
 use std::ops::Deref;
@@ -57,6 +57,7 @@ impl Share {
     }
 }
 
+#[derive(Debug)]
 struct ShareWrapper(Vec<u8>);
 
 impl ShareWrapper {
@@ -152,41 +153,46 @@ pub trait GrinProducer {
 
 impl GrinProducer for KafkaProducer {
     fn from_config(cfg: &ProducerConfig) -> KafkaProducer {
-        let client = KafkaClient::new(cfg.brokers.clone());
-        let producer = {
-            let options: Option<HashMap<String, String>> = cfg.options.clone();
-            let kafka_config: KafkaProducerConfig;
-            if options.is_some() {
-                let options = options.unwrap();
-                kafka_config = KafkaProducerConfig::new(
-                    options.get("compression"),
-                    options.get("required_acks"),
-                    options.get("batch_size"),
-                    options.get("conn_idle_timeout"),
-                    options.get("ack_timeout"),
-                );
-            } else {
-                kafka_config = KafkaProducerConfig::default();
-            }
-            Producer::from_client(client)
-                .with_ack_timeout(kafka_config.ack_timeout)
-                .with_required_acks(kafka_config.required_acks)
-                .with_compression(kafka_config.compression)
-                .with_connection_idle_timeout(kafka_config.conn_idle_timeout)
-                .create()
-                .unwrap()
-        };
+        let mut client = KafkaClient::new(cfg.brokers.clone());
+        client.set_client_id("kafka-grin-pool".into());
+        match client.load_metadata_all() {
+            Ok(_) => {
+                let producer = {
+                    let options: Option<HashMap<String, String>> = cfg.options.clone();
+                    let kafka_config: KafkaProducerConfig;
+                    if options.is_some() {
+                        let options = options.unwrap();
+                        kafka_config = KafkaProducerConfig::new(
+                            options.get("compression"),
+                            options.get("required_acks"),
+                            options.get("batch_size"),
+                            options.get("conn_idle_timeout"),
+                            options.get("ack_timeout"),
+                        );
+                    } else {
+                        kafka_config = KafkaProducerConfig::default();
+                    }
+                    Producer::from_client(client)
+                        .with_ack_timeout(kafka_config.ack_timeout)
+                        .with_required_acks(kafka_config.required_acks)
+                        .with_compression(kafka_config.compression)
+                        .with_connection_idle_timeout(kafka_config.conn_idle_timeout)
+                        .create()
+                        .unwrap()
+                };
 
-        KafkaProducer {
-            topic: cfg.topic.clone(),
-            partitions: cfg.partitions,
-            client: producer,
+                KafkaProducer {
+                    topic: cfg.topic.clone(),
+                    partitions: cfg.partitions,
+                    client: producer,
+                }
+            }
+            Err(e) => panic!(format!("{:?}", e)),
         }
     }
 
     fn send_data(&mut self, share: Share) -> Result<()> {
-        let record = Record::from_value(&self.topic, ShareWrapper::new(&share))
-            .with_partition(self.partitions);
+        let record = Record::from_value(&self.topic, ShareWrapper::new(&share));
         self.client.send(&record)?;
         Ok(())
     }
@@ -198,5 +204,84 @@ error_chain! {
     }
     foreign_links {
         Io(io::Error);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+    use pool::config::{read_config, Config, ProducerConfig};
+
+    #[test]
+    fn test_send_data() {
+        let config = read_config();
+        let mut kafka_producer = KafkaProducer::from_config(&config.producer);
+        let share = Share::new(
+            "test_server_id".to_owned(),
+            2019usize,
+            "test_server_address".to_owned(),
+            9981u64,
+            "test_worker_fullname".to_owned(),
+            SubmitResult::Accept,
+            10u64,
+            4u64,
+        );
+        let result = kafka_producer.send_data(share);
+        assert_eq!(result.is_ok(), true, "{}", format!("{:?}", result));
+    }
+
+    #[test]
+    fn test_consumer_data_from_kafka() {
+        let config = read_config();
+        let mut kafka_producer = KafkaProducer::from_config(&config.producer);
+        let share = Share::new(
+            "test_server_id".to_owned(),
+            2019usize,
+            "test_server_address".to_owned(),
+            9981u64,
+            "test_worker_fullname".to_owned(),
+            SubmitResult::Accept,
+            10u64,
+            4u64,
+        );
+        struct Inner {
+            pub producer: KafkaProducer,
+        }
+
+        let mut inner = Inner {
+            producer: kafka_producer,
+        };
+        let result = inner.producer.send_data(share.clone());
+        assert_eq!(result.is_ok(), true, "{}", format!("{:?}", result));
+
+        let cfg: &ProducerConfig = &config.producer;
+        let mut consumer = {
+            let mut cb = Consumer::from_hosts(cfg.brokers.clone())
+                .with_group(String::new())
+                .with_fallback_offset(FetchOffset::Earliest)
+                .with_fetch_max_wait_time(Duration::from_millis(2))
+                .with_fetch_min_bytes(1_000)
+                .with_fetch_max_bytes_per_partition(100_100)
+                .with_retry_max_bytes_limit(1_000_000)
+                .with_offset_storage(GroupOffsetStorage::Kafka)
+                .with_client_id("kafka-grin-test-consumer".into());
+            cb = cb.with_topic(cfg.topic.clone());
+            cb.create().unwrap()
+        };
+
+        let mut messages = consumer.poll().unwrap();
+        let mut messages_iter = messages.iter();
+        let message_set = messages_iter.next().unwrap();
+
+        let message_content: &[u8] = message_set.messages()[message_set.messages().len() - 1].value;
+        let s: Share = deserialize(message_content).unwrap();
+        assert_eq!(s.accepted, share.accepted);
+        assert_eq!(s.rejected, share.rejected);
+        assert_eq!(s.difficulty, share.difficulty);
+        assert_eq!(s.worker_id, share.worker_id);
+        assert_eq!(s.fullname, share.fullname);
+        assert_eq!(s.server_id, share.server_id);
+        assert_eq!(s.worker_addr, share.worker_addr);
     }
 }
