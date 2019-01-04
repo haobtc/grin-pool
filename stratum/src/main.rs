@@ -31,6 +31,7 @@ extern crate toml;
 extern crate sha2;
 #[macro_use]
 extern crate error_chain;
+extern crate base64;
 extern crate bincode;
 extern crate kafka;
 

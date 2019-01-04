@@ -18,6 +18,7 @@
 
 use bufstream::BufStream;
 use serde_json;
+use base64;
 use serde_json::Value;
 use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
