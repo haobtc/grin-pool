@@ -18,7 +18,9 @@ port_difficulty = [
  [3333, 1],
 ]
 
-#
+[server]
+id = 1
+
 # Configuration for access to upstream grin node
 [grin_node]
 address = "grin"

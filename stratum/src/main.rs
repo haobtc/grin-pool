@@ -33,6 +33,7 @@ extern crate sha2;
 extern crate error_chain;
 extern crate base64;
 extern crate bincode;
+extern crate chrono;
 extern crate kafka;
 
 use bufstream::BufStream;

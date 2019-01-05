@@ -33,12 +33,18 @@ pub struct Config {
     pub grin_node: NodeConfig,
     pub workers: WorkerConfig,
     pub producer: ProducerConfig,
+    pub server: ServerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct PortDifficulty {
     pub port: u64,
     pub difficulty: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ServerConfig {
+    pub id: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]

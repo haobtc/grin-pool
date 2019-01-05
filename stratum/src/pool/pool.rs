@@ -12,6 +12,7 @@
 // limitations under the License.
 
 use bufstream::BufStream;
+use chrono::offset::Utc;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -245,18 +246,15 @@ impl Pool {
                             // Dont process this share anymore, but send information to kafka
 
                             let send_share = Share::new(
+                                share.job_id,
                                 self.server.get_id(),
-                                worker.id,
                                 worker.addr.clone(),
+                                worker.id,
                                 worker.status.difficulty,
                                 worker.login(),
                                 SubmitResult::Reject,
-                                worker.status.accepted,
-                                worker.status.rejected,
                                 share.get_height(),
-                                share.job_id,
-                                share.nonce,
-                                share.get_edge_bits(),
+                                Utc::now().timestamp() as u32,
                             );
                             self.server.get_kafka().send_data(send_share);
                             continue;

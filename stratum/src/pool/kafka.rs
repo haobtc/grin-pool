@@ -1,6 +1,7 @@
 use bincode::{deserialize, serialize};
 use std::collections::HashMap;
 use std::io;
+use std::net::Ipv4Addr;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Duration;
@@ -14,57 +15,82 @@ use kafka::client::{
 };
 use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
 
-#[repr(u8)]
+const FULLNAME_LIMIT: usize = 38;
+
+#[repr(i32)]
 #[derive(Debug)]
 pub enum SubmitResult {
-    Accept = 0,
-    Reject,
+    Reject = 0,
+    Accept,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+fn get_inet_addr(worker_addr: &str) -> u32 {
+    let addrs = worker_addr
+        .split('.')
+        .map(|s| s.parse::<u8>().unwrap())
+        .collect::<Vec<u8>>();
+    let ip = Ipv4Addr::new(addrs[3], addrs[2], addrs[1], addrs[0]);
+    u32::from(ip)
+}
+
+fn get_server_id(server_id: &str) -> u16 {
+    let splits = server_id.split('-').collect::<Vec<&str>>();
+    splits[1].parse::<u16>().unwrap()
+}
+
+fn get_fullname(fullname: &str) -> String {
+    let mut fullname = fullname.to_string();
+    let length = fullname.len();
+    if length < FULLNAME_LIMIT {
+        fullname.push_str(" ".repeat(FULLNAME_LIMIT - length).as_str())
+    }
+    fullname
+}
+
+#[repr(C)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct Share {
-    height: u64,
     job_id: u64,
-    nonce: u64,
-    edge_bits: u32,
-    server_id: String,
-    worker_id: usize,
-    worker_addr: String,
+    worker_hash_id: i64, // 0
     difficulty: u64,
+    ip: u32,
+    user_id: i32, // 0
+    timestamp: u32,
+    blkbits: u32, // 0
+    result: i32,
+    height: i32,
+    share_diff: u64, // 0
+    server_id: u16,
     fullname: String,
-    result: u8,
-    accepted: u64,
-    rejected: u64,
 }
 
 impl Share {
     pub fn new(
+        job_id: u64,
         server_id: String,
-        worker_id: usize,
         worker_addr: String,
+        worker_id: usize,
         difficulty: u64,
         fullname: String,
         result: SubmitResult,
-        accepted: u64,
-        rejected: u64,
-        height: u64,
-        job_id: u64,
-        nonce: u64,
-        edge_bits: u32,
+        height: i32,
+        timestamp: u32,
     ) -> Share {
         Share {
-            worker_id,
-            fullname,
-            difficulty,
-            server_id,
-            worker_addr,
-            accepted,
-            rejected,
-            height,
             job_id,
-            nonce,
-            edge_bits,
-            result: result as u8,
+            difficulty,
+            timestamp,
+            height,
+
+            worker_hash_id: 0,
+            user_id: worker_id as i32,
+            blkbits: 0,
+            share_diff: 0,
+
+            result: result as i32,
+            server_id: get_server_id(&server_id),
+            ip: get_inet_addr(&worker_addr),
+            fullname: get_fullname(&fullname),
         }
     }
 }

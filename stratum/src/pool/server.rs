@@ -18,6 +18,7 @@
 
 use base64;
 use bufstream::BufStream;
+use chrono::offset::Utc;
 use serde_json;
 use serde_json::Value;
 use std::net::{Shutdown, TcpStream};
@@ -59,7 +60,7 @@ impl Server {
     /// Creates a new Stratum Server Connection.
     pub fn new(cfg: Config) -> Server {
         Server {
-            id: "Pool".to_string(),
+            id: format!("Pool-{}", cfg.server.id.to_string()),
             kafka: KafkaProducer::from_config(&cfg.producer),
             config: cfg,
             stream: None,
@@ -183,11 +184,14 @@ impl Server {
             Some(ref mut stream) => {
                 let params_value = serde_json::to_value(solution).unwrap();
                 debug!(LOGGER, "{} - Submitting a share", self.id);
+                let encode_string: String = base64::encode(
+                    format!("{}+{}", worker_id.to_string(), solution.as_string()).as_bytes(),
+                );
                 return self.protocol.send_request(
                     stream,
                     "submit".to_string(),
                     Some(params_value),
-                    Some(worker_id.to_string()),
+                    Some(encode_string),
                 );
             }
             None => Err("No upstream connection".to_string()),
@@ -355,10 +359,8 @@ impl Server {
                                             let utf8: &[u8] = &decode_string.unwrap();
 
                                             let w_id_usz: usize;
-                                            let height: u64;
+                                            let height: i32;
                                             let job_id: u64;
-                                            let nonce: u64;
-                                            let edge_bits: u32;
                                             match ::std::str::from_utf8(utf8) {
                                                 Ok(o) => {
                                                     let v: Vec<&str> = o.split('+').collect();
@@ -374,10 +376,8 @@ impl Server {
                                                         }
                                                     };
                                                     // cant be wrong
-                                                    height = v[1].parse::<u64>().unwrap();
+                                                    height = v[1].parse::<i32>().unwrap();
                                                     job_id = v[2].parse::<u64>().unwrap();
-                                                    nonce = v[3].parse::<u64>().unwrap();
-                                                    edge_bits = v[4].parse::<u32>().unwrap();
                                                 }
                                                 Err(_) => {
                                                     let e = RpcError {
@@ -387,8 +387,14 @@ impl Server {
                                                     return Err(e);
                                                 }
                                             }
-                                            info!(LOGGER, "{}", format!("Successful Split Response ID: [{}, {}, {}, {}, {}]",
-                                                                        w_id_usz, height, job_id, nonce, edge_bits));
+                                            info!(
+                                                LOGGER,
+                                                "{}",
+                                                format!(
+                                                    "Successful Split Response ID: [{}, {}, {}]",
+                                                    w_id_usz, height, job_id
+                                                )
+                                            );
                                             // Get the worker index this response is for
                                             let w_id_o: Option<usize> =
                                                 workers_l.iter().position(|ref i| i.id == w_id_usz);
@@ -459,18 +465,15 @@ impl Server {
 
                                             let worker: &Worker = &workers_l[w_id];
                                             let share = Share::new(
-                                                self.id.clone(),          // sserver id
-                                                w_id,                     // worker id
-                                                worker.addr.clone(),      // worker_addr IP:PORT
-                                                worker.status.difficulty, // difficulty
-                                                worker.login(),           // fullname
-                                                result,
-                                                worker.status.accepted,
-                                                worker.status.rejected,
-                                                height,
                                                 job_id,
-                                                nonce,
-                                                edge_bits,
+                                                self.id.clone(),     // sserver id
+                                                worker.addr.clone(), // worker_addr IP:PORT
+                                                w_id,                // worker id
+                                                worker.status.difficulty, // difficulty
+                                                worker.login(),      // fullname
+                                                result,
+                                                height,
+                                                Utc::now().timestamp() as u32,
                                             );
                                             // send share to kafka
                                             self.kafka.send_data(share);
