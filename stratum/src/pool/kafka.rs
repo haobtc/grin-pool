@@ -23,6 +23,10 @@ pub enum SubmitResult {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Share {
+    height: u64,
+    job_id: u64,
+    nonce: u64,
+    edge_bits: u32,
     server_id: String,
     worker_id: usize,
     worker_addr: String,
@@ -43,6 +47,10 @@ impl Share {
         result: SubmitResult,
         accepted: u64,
         rejected: u64,
+        height: u64,
+        job_id: u64,
+        nonce: u64,
+        edge_bits: u32,
     ) -> Share {
         Share {
             worker_id,
@@ -52,6 +60,10 @@ impl Share {
             worker_addr,
             accepted,
             rejected,
+            height,
+            job_id,
+            nonce,
+            edge_bits,
             result: result as u8,
         }
     }

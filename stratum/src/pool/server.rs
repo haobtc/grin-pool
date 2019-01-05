@@ -16,9 +16,9 @@
 //! An upstream grin stratum server
 //!
 
+use base64;
 use bufstream::BufStream;
 use serde_json;
-use base64;
 use serde_json::Value;
 use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
@@ -260,10 +260,11 @@ impl Server {
                                                     .unwrap();
                                             debug!(
                                                 LOGGER,
-                                                "{} - Setting new job for height {} job_id {}",
+                                                "{} - Setting new job for height {} job_id {} and difficulty {}",
                                                 self.id,
                                                 job.height,
                                                 job.job_id,
+                                                job.difficulty,
                                             );
                                             self.job = job;
                                             return Ok(req.method.clone());
@@ -286,41 +287,8 @@ impl Server {
                                         }
                                     };
                                 } else {
-                                    // This is a response from the upstream Grin Stratum Server
-                                    // Here, we are accepting responses to requests we sent on behalf of a worker
-                                    // The messages 'id' field contains the worker id this response is for
-                                    // We need to process the responses the pool cares about,
-                                    // The pool made this request and it will handle responses (so return the results back up)
                                     let res: RpcResponse = serde_json::from_str(&message).unwrap();
                                     debug!(LOGGER, "{} - Received response {:?}", self.id, res);
-                                    let mut workers_l = workers.lock().unwrap();
-                                    // Get the worker index this response is for
-                                    let w_id_usz: usize = match res.id.parse::<usize>() {
-                                        Ok(id) => id,
-                                        Err(err) => {
-                                            let e = RpcError {
-                                                code: -1,
-                                                message: "Invalid Worker ID".to_string(),
-                                            };
-                                            return Err(e);
-                                        }
-                                    };
-                                    let w_id_o: Option<usize> =
-                                        workers_l.iter().position(|ref i| i.id == w_id_usz);
-                                    let w_id: usize;
-                                    match w_id_o {
-                                        Some(id) => w_id = id,
-                                        _ => {
-                                            let err_msg = "Null Worker ID".to_string();
-                                            debug!(LOGGER, "Null Worker ID");
-                                            self.error = true;
-                                            let e = RpcError {
-                                                code: -32600,
-                                                message: err_msg,
-                                            };
-                                            return Err(e);
-                                        }
-                                    };
                                     match res.method.as_str() {
                                         // This is a response to a getjobtemplate request made by the pool
                                         "getjobtemplate" => {
@@ -374,11 +342,82 @@ impl Server {
                                             return Ok(res.method.clone());
                                         }
                                         "submit" => {
+                                            // For now only submit here need worder_id(w_id)
+
+                                            // This is a response from the upstream Grin Stratum Server
+                                            // Here, we are accepting responses to requests we sent on behalf of a worker
+                                            // The messages 'id' field contains the worker id this response is for
+                                            // We need to process the responses the pool cares about,
+                                            // The pool made this request and it will handle responses (so return the results back up)
+                                            let mut workers_l = workers.lock().unwrap();
+                                            let decode_string = base64::decode(&res.id);
+                                            // can't be wrong
+                                            let utf8: &[u8] = &decode_string.unwrap();
+
+                                            let w_id_usz: usize;
+                                            let height: u64;
+                                            let job_id: u64;
+                                            let nonce: u64;
+                                            let edge_bits: u32;
+                                            match ::std::str::from_utf8(utf8) {
+                                                Ok(o) => {
+                                                    let v: Vec<&str> = o.split('+').collect();
+                                                    w_id_usz = match v[0].parse::<usize>() {
+                                                        Ok(value) => value,
+                                                        Err(_) => {
+                                                            let e = RpcError {
+                                                                code: -1,
+                                                                message: "Invalid Worker ID"
+                                                                    .to_string(),
+                                                            };
+                                                            return Err(e);
+                                                        }
+                                                    };
+                                                    // cant be wrong
+                                                    height = v[1].parse::<u64>().unwrap();
+                                                    job_id = v[2].parse::<u64>().unwrap();
+                                                    nonce = v[3].parse::<u64>().unwrap();
+                                                    edge_bits = v[4].parse::<u32>().unwrap();
+                                                }
+                                                Err(_) => {
+                                                    let e = RpcError {
+                                                        code: -1,
+                                                        message: "Invalid Worker ID".to_string(),
+                                                    };
+                                                    return Err(e);
+                                                }
+                                            }
+                                            info!(LOGGER, "{}", format!("Successful Split Response ID: [{}, {}, {}, {}, {}]",
+                                                                        w_id_usz, height, job_id, nonce, edge_bits));
+                                            // Get the worker index this response is for
+                                            let w_id_o: Option<usize> =
+                                                workers_l.iter().position(|ref i| i.id == w_id_usz);
+                                            let w_id: usize;
+                                            match w_id_o {
+                                                Some(id) => w_id = id,
+                                                _ => {
+                                                    let err_msg = "Null Worker ID".to_string();
+                                                    debug!(LOGGER, "Null Worker ID");
+                                                    self.error = true;
+                                                    let e = RpcError {
+                                                        code: -32600,
+                                                        message: err_msg,
+                                                    };
+                                                    return Err(e);
+                                                }
+                                            };
+
                                             // XXX TODO: Error checking
                                             debug!(LOGGER, "w_id = {}", w_id);
+                                            let result: SubmitResult;
                                             match res.result {
                                                 Some(response) => {
                                                     // The share was accepted
+                                                    // response has two type, one is ok the
+                                                    // other is "block - {HASH}"
+                                                    // ok just mean node accept the share
+                                                    // block - {HASH} mean valid the share and
+                                                    // success
                                                     debug!(
                                                         LOGGER,
                                                         "setting stats for worker id {:?}", res.id
@@ -386,34 +425,7 @@ impl Server {
                                                     workers_l[w_id].status.accepted += 1;
                                                     debug!(LOGGER, "Server accepted our share");
                                                     workers_l[w_id].send_ok(res.method.clone());
-                                                    // After share was accepted, send share to kafka
-                                                    // params has share informations
-                                                    // {
-                                                    //    height, job_id, nonce, edge_bits(what?),
-                                                    //    pow
-                                                    // }
-
-                                                    // but we can't get submit params from response.
-                                                    // we should get share informations
-
-                                                    // response has two type, one is ok the
-                                                    // other is "block - {HASH}"
-                                                    // ok just mean node accept the share
-                                                    // block - {HASH} mean valid the share and
-                                                    // success
-                                                    let worker: &Worker = &workers_l[w_id];
-                                                    let share = Share::new(
-                                                        self.id.clone(),          // sserver id
-                                                        w_id,                     // worker id
-                                                        worker.addr.clone(), // worker_addr IP:PORT
-                                                        worker.status.difficulty, // difficulty
-                                                        worker.login(),      // fullname
-                                                        SubmitResult::Accept,
-                                                        worker.status.accepted,
-                                                        worker.status.rejected,
-                                                    );
-
-                                                    self.kafka.send_data(share);
+                                                    result = SubmitResult::Accept;
                                                 }
                                                 None => {
                                                     // The share was not accepted, check RpcError.code for reason
@@ -441,22 +453,27 @@ impl Server {
                                                             );
                                                         }
                                                     };
-
-                                                    let worker: &Worker = &workers_l[w_id];
-                                                    let share = Share::new(
-                                                        self.id.clone(),          // sserver id
-                                                        w_id,                     // worker id
-                                                        worker.addr.clone(), // worker_addr IP:PORT
-                                                        worker.status.difficulty, // difficulty
-                                                        worker.login(),      // fullname
-                                                        SubmitResult::Reject,
-                                                        worker.status.accepted,
-                                                        worker.status.rejected,
-                                                    );
-
-                                                    self.kafka.send_data(share);
+                                                    result = SubmitResult::Reject;
                                                 }
                                             };
+
+                                            let worker: &Worker = &workers_l[w_id];
+                                            let share = Share::new(
+                                                self.id.clone(),          // sserver id
+                                                w_id,                     // worker id
+                                                worker.addr.clone(),      // worker_addr IP:PORT
+                                                worker.status.difficulty, // difficulty
+                                                worker.login(),           // fullname
+                                                result,
+                                                worker.status.accepted,
+                                                worker.status.rejected,
+                                                height,
+                                                job_id,
+                                                nonce,
+                                                edge_bits,
+                                            );
+                                            // send share to kafka
+                                            self.kafka.send_data(share);
                                             return Ok(res.method.clone());
                                         }
                                         "keepalive" => {

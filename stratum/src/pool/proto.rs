@@ -70,6 +70,27 @@ pub struct SubmitParams {
     pub pow: Vec<u32>,
 }
 
+impl SubmitParams {
+    pub fn as_string(&self) -> String {
+        /*
+         * as_string function ordering is
+         * height+job_id+nonce+edge_bits
+         */
+        format!(
+            "{}+{}+{}+{}",
+            self.height, self.job_id, self.nonce, self.edge_bits
+        )
+    }
+
+    pub fn get_height(&self) -> u64 {
+        self.height
+    }
+
+    pub fn get_edge_bits(&self) -> u32 {
+        self.edge_bits
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobTemplate {
     pub height: u64,

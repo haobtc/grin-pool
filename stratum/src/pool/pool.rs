@@ -253,6 +253,10 @@ impl Pool {
                                 SubmitResult::Reject,
                                 worker.status.accepted,
                                 worker.status.rejected,
+                                share.get_height(),
+                                share.job_id,
+                                share.nonce,
+                                share.get_edge_bits(),
                             );
                             self.server.get_kafka().send_data(send_share);
                             continue;
