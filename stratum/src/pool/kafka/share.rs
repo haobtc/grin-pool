@@ -41,19 +41,19 @@ fn get_fullname(fullname: &str) -> [char; FULLNAME_LIMIT] {
 #[repr(C)]
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Share {
-    job_id: u64,
-    worker_hash_id: i64, // 0
-    difficulty: u64,
-    ip: u32,
-    user_id: i32, // 0
-    timestamp: u32,
-    blkbits: u32, // 0
-    result: i32,
-    height: i32,
-    share_diff: u64, // 0
-    server_id: u16,
+    pub job_id: u64,
+    pub worker_hash_id: i64, // 0
+    pub difficulty: u64,
+    pub ip: u32,
+    pub user_id: i32, // 0
+    pub timestamp: u32,
+    pub blkbits: u32, // 0
+    pub result: i32,
+    pub height: i32,
+    pub share_diff: u64, // 0
+    pub server_id: u16,
     #[serde(with = "LargeArray")]
-    fullname: [char; FULLNAME_LIMIT],
+    pub fullname: [char; FULLNAME_LIMIT],
 }
 
 impl Share {
