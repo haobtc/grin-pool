@@ -10,7 +10,7 @@
 #
 # Configuration for the Stratum Pool
 [grin_pool]
-log_dir = "/stratum"
+log_dir = "/usr/local/var/"
 
 [workers]
 listen_address = "0.0.0.0"
@@ -23,14 +23,16 @@ id = 1
 
 # Configuration for access to upstream grin node
 [grin_node]
-address = "grin"
+address = "47.99.92.164"
 api_port = 13413
 stratum_port = 13416
 login = "GrinPool"
 password = ""
 
 [producer]
-brokers = ["localhost:9092"]
-topic = "my-topic"
+#brokers = ["localhost:9092"]
+#topic = "my-topic"
+brokers = ["47.110.45.103:29092", "47.110.52.22:29092", "47.99.33.70:29092"]
+topic = "ShareLogGrin"
 partitions = 1
 options = {"required_acks" = "none", "ack_timeout" = "1000", "conn_idle_timeout" =  "500"}
