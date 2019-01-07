@@ -32,7 +32,7 @@ fn get_fullname(fullname: &str) -> [char; FULLNAME_LIMIT] {
     let mut fullname = fullname.to_string();
     let length = fullname.len();
     if length < FULLNAME_LIMIT {
-        fullname.push_str(" ".repeat(FULLNAME_LIMIT - length).as_str())
+        fullname.push_str("\0".repeat(FULLNAME_LIMIT - length).as_str())
     }
 
     let mut result: [char; FULLNAME_LIMIT] = [char::default(); FULLNAME_LIMIT];

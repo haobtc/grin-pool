@@ -59,7 +59,7 @@ fn validate_fullname(login_params: &mut LoginParams) -> bool {
     } else {
         need_reconcat = true;
         username = splits[0].as_str();
-        workername = "default";
+        workername = "__default__";
     }
     if validate_username(username) && validate_workername(workername) {
         if need_reconcat {
@@ -137,7 +137,7 @@ impl Worker {
     /// Get worker login
     pub fn login(&self) -> String {
         match self.login {
-            None => "None".to_string(),
+            None => "None.__default__".to_string(),
             Some(ref login) => login.login.clone(),
         }
     }

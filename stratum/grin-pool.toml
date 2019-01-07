@@ -32,7 +32,7 @@ password = ""
 [producer]
 #brokers = ["localhost:9092"]
 #topic = "my-topic"
-brokers = ["47.110.45.103:29092", "47.110.52.22:29092", "47.99.33.70:29092"]
+brokers = ["lan.kafka01hz.pool:29092", "lan.kafka02hz.pool:29092", "lan.kafka03hz.pool:29092"]
 topic = "ShareLogGrin"
 partitions = 1
 options = {"required_acks" = "none", "ack_timeout" = "1000", "conn_idle_timeout" =  "500"}
