@@ -361,6 +361,7 @@ impl Server {
                                             let w_id_usz: usize;
                                             let height: i32;
                                             let job_id: u64;
+                                            let _nonce: u64;
                                             match ::std::str::from_utf8(utf8) {
                                                 Ok(o) => {
                                                     let v: Vec<&str> = o.split('+').collect();
@@ -378,6 +379,7 @@ impl Server {
                                                     // cant be wrong
                                                     height = v[1].parse::<i32>().unwrap();
                                                     job_id = v[2].parse::<u64>().unwrap();
+                                                    _nonce = v[3].parse::<u64>().unwrap();
                                                 }
                                                 Err(_) => {
                                                     let e = RpcError {
@@ -391,8 +393,8 @@ impl Server {
                                                 LOGGER,
                                                 "{}",
                                                 format!(
-                                                    "Successful Split Response ID: [{}, {}, {}]",
-                                                    w_id_usz, height, job_id
+                                                    "Successful Split Response ID: [{}, {}, {}, {}]",
+                                                    w_id_usz, height, job_id, _nonce
                                                 )
                                             );
                                             // Get the worker index this response is for

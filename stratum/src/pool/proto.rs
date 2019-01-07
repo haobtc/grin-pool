@@ -76,7 +76,7 @@ impl SubmitParams {
          * as_string function ordering is
          * height+job_id+nonce+edge_bits
          */
-        format!("{}+{}", self.height, self.job_id)
+        format!("{}+{}+{}", self.height, self.job_id, self.nonce)
     }
 
     pub fn get_height(&self) -> i32 {
