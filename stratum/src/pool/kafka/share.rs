@@ -13,7 +13,9 @@ pub enum SubmitResult {
 }
 
 fn get_inet_addr(worker_addr: &str) -> u32 {
-    let addrs = worker_addr
+    let mut addr_port = worker_addr.split(':').collect::<Vec<&str>>();
+    let (addr, _port) = (addr_port[0], addr_port[1]);
+    let addrs = addr
         .split('.')
         .map(|s| s.parse::<u8>().unwrap())
         .collect::<Vec<u8>>();

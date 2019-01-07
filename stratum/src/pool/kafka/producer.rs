@@ -178,7 +178,7 @@ mod test {
         let share = Share::new(
             0,
             "test_server_id-1".to_owned(),
-            "192.168.1.1".to_owned(),
+            "192.168.1.1:10086".to_owned(),
             2019,
             9981,
             "user.worker".to_owned(),
@@ -197,7 +197,7 @@ mod test {
         let share = Share::new(
             9,
             "test_server_id-2".to_owned(),
-            "192.168.1.1".to_owned(),
+            "192.168.1.1:10086".to_owned(),
             2019,
             9981,
             "user.worker".to_owned(),
