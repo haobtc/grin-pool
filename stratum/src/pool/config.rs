@@ -70,7 +70,7 @@ pub struct NodeConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProducerConfig {
     pub brokers: Vec<String>,
-    pub topic: String,
+    pub topics: HashMap<String, String>,
     pub partitions: i32,
     pub options: Option<HashMap<String, String>>,
 }
