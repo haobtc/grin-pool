@@ -12,14 +12,16 @@
 // limitations under the License.
 
 use bufstream::BufStream;
+use chrono::offset::Utc;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 use std::{thread, time};
-use sha2::{Sha256, Digest};
 
 use pool::config::{Config, NodeConfig, PoolConfig, WorkerConfig};
+use pool::kafka::{GrinProducer, KafkaProducer, Share, SubmitResult};
 use pool::logger::LOGGER;
 use pool::proto::{JobTemplate, RpcError, SubmitParams};
 use pool::server::Server;
@@ -57,7 +59,8 @@ fn accept_workers(
                 stream
                     .set_nonblocking(true)
                     .expect("set_nonblocking call failed");
-                let mut worker = Worker::new(worker_id, BufStream::new(stream));
+                let mut worker =
+                    Worker::new(worker_id, worker_addr.to_string(), BufStream::new(stream));
                 worker.set_difficulty(difficulty);
                 workers.lock().unwrap().push(worker);
                 worker_id = worker_id + 1;
@@ -105,7 +108,8 @@ impl Pool {
         for port_difficulty in &self.config.workers.port_difficulty {
             let mut workers_th = self.workers.clone();
             let id_th = self.id.clone();
-            let address_th = self.config.workers.listen_address.clone() + ":"
+            let address_th = self.config.workers.listen_address.clone()
+                + ":"
                 + &port_difficulty.port.to_string();
             let difficulty_th = port_difficulty.difficulty;
             let _listener_th = thread::spawn(move || {
@@ -183,7 +187,15 @@ impl Pool {
     fn process_worker_messages(&mut self) {
         let mut workers_l = self.workers.lock().unwrap();
         for worker in workers_l.iter_mut() {
-            let _ = worker.process_messages();
+            let result = worker.process_messages();
+            match result {
+                Err(ref s) if s == "invalid worker name" => {
+                    warn!(LOGGER, "Remove worker id: {}", worker.id);
+                    worker.set_error();
+                }
+                Ok(_) => {}
+                Err(_) => {}
+            }
         }
     }
 
@@ -239,7 +251,21 @@ impl Pool {
                             );
                             worker.status.rejected += 1;
                             worker.block_status.rejected += 1;
-                            continue; // Dont process this share anymore
+                            // Dont process this share anymore, but send information to kafka
+
+                            let send_share = Share::new(
+                                share.job_id,
+                                self.server.get_id(),
+                                worker.addr.clone(),
+                                worker.id,
+                                worker.status.difficulty,
+                                worker.login(),
+                                SubmitResult::Reject,
+                                share.get_height(),
+                                Utc::now().timestamp() as u32,
+                            );
+                            self.server.get_kafka().send_data(send_share);
+                            continue;
                         } else {
                             self.duplicates.insert(share.pow.clone(), worker.id());
                         }

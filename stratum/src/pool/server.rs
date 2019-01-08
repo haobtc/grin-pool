@@ -16,7 +16,9 @@
 //! An upstream grin stratum server
 //!
 
+use base64;
 use bufstream::BufStream;
+use chrono::offset::Utc;
 use serde_json;
 use serde_json::Value;
 use std::net::{Shutdown, TcpStream};
@@ -24,8 +26,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::{thread, time};
 
 use pool::config::{Config, NodeConfig, PoolConfig, WorkerConfig};
+use pool::kafka::{GrinProducer, KafkaProducer, Share, SubmitResult};
 use pool::logger::LOGGER;
-use pool::proto::{JobTemplate, LoginParams, RpcError, StratumProtocol, SubmitParams, WorkerStatus};
+use pool::proto::{
+    JobTemplate, LoginParams, RpcError, StratumProtocol, SubmitParams, WorkerStatus,
+};
 use pool::proto::{RpcRequest, RpcResponse};
 use pool::worker::Worker;
 
@@ -40,13 +45,23 @@ pub struct Server {
     error: bool,
     pub job: JobTemplate,
     status: WorkerStatus,
+    kafka: KafkaProducer,
 }
 
 impl Server {
+    pub fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn get_kafka(&mut self) -> &mut KafkaProducer {
+        &mut self.kafka
+    }
+
     /// Creates a new Stratum Server Connection.
     pub fn new(cfg: Config) -> Server {
         Server {
-            id: "Pool".to_string(),
+            id: format!("Pool-{}", cfg.server.id.to_string()),
+            kafka: KafkaProducer::from_config(&cfg.producer),
             config: cfg,
             stream: None,
             protocol: StratumProtocol::new(),
@@ -63,7 +78,8 @@ impl Server {
         if !self.error && self.stream.is_some() {
             return Ok(());
         }
-        let grin_stratum_url = self.config.grin_node.address.clone() + ":"
+        let grin_stratum_url = self.config.grin_node.address.clone()
+            + ":"
             + &self.config.grin_node.stratum_port.to_string();
         warn!(
             LOGGER,
@@ -73,7 +89,8 @@ impl Server {
         );
         match TcpStream::connect(grin_stratum_url.to_string()) {
             Ok(conn) => {
-                let _ = conn.set_nonblocking(true)
+                let _ = conn
+                    .set_nonblocking(true)
                     .expect("set_nonblocking call failed");
                 self.stream = Some(BufStream::new(conn));
                 self.error = false;
@@ -167,11 +184,14 @@ impl Server {
             Some(ref mut stream) => {
                 let params_value = serde_json::to_value(solution).unwrap();
                 debug!(LOGGER, "{} - Submitting a share", self.id);
+                let encode_string: String = base64::encode(
+                    format!("{}+{}", worker_id.to_string(), solution.as_string()).as_bytes(),
+                );
                 return self.protocol.send_request(
                     stream,
                     "submit".to_string(),
                     Some(params_value),
-                    Some(worker_id.to_string()),
+                    Some(encode_string),
                 );
             }
             None => Err("No upstream connection".to_string()),
@@ -239,13 +259,16 @@ impl Server {
                                     match req.method.as_str() {
                                         // The upstream stratum server has sent us a new job
                                         "job" => {
-                                            let job: JobTemplate = serde_json::from_value(req.params.unwrap()).unwrap();
+                                            let job: JobTemplate =
+                                                serde_json::from_value(req.params.unwrap())
+                                                    .unwrap();
                                             debug!(
                                                 LOGGER,
-                                                "{} - Setting new job for height {} job_id {}",
+                                                "{} - Setting new job for height {} job_id {} and difficulty {}",
                                                 self.id,
                                                 job.height,
-						job.job_id,
+                                                job.job_id,
+                                                job.difficulty,
                                             );
                                             self.job = job;
                                             return Ok(req.method.clone());
@@ -268,49 +291,16 @@ impl Server {
                                         }
                                     };
                                 } else {
-                                    // This is a response from the upstream Grin Stratum Server
-                                    // Here, we are accepting responses to requests we sent on behalf of a worker
-                                    // The messages 'id' field contains the worker id this response is for
-                                    // We need to process the responses the pool cares about,
-                                    // The pool made this request and it will handle responses (so return the results back up)
                                     let res: RpcResponse = serde_json::from_str(&message).unwrap();
                                     debug!(LOGGER, "{} - Received response {:?}", self.id, res);
-                                    let mut workers_l = workers.lock().unwrap();
-                                    // Get the worker index this response is for
-                                    let w_id_usz: usize = match res.id.parse::<usize>() {
-                                        Ok(id) => id,
-                                        Err(err) => {
-                                            let e = RpcError {
-                                                code: -1,
-                                                message: "Invalid Worker ID".to_string(),
-                                            };
-                                            return Err(e);
-                                        }
-                                    };
-                                    let w_id_o: Option<usize> = workers_l
-                                        .iter()
-                                        .position(|ref i| i.id == w_id_usz);
-                                    let w_id: usize;
-                                    match w_id_o {
-                                        Some(id) => w_id = id,
-                                        _ => {
-                                            let err_msg = "Null Worker ID".to_string();
-                                            debug!(LOGGER, "Null Worker ID");
-                                            self.error = true;
-                                            let e = RpcError {
-                                                code: -32600,
-                                                message: err_msg,
-                                            };
-                                            return Err(e);
-                                        }
-                                    };
                                     match res.method.as_str() {
                                         // This is a response to a getjobtemplate request made by the pool
                                         "getjobtemplate" => {
                                             // Could be rpcerror - like "still syncing"
                                             match res.result {
                                                 Some(response) => {
-                                                    let job: JobTemplate = serde_json::from_value(response).unwrap();
+                                                    let job: JobTemplate =
+                                                        serde_json::from_value(response).unwrap();
                                                     debug!(
                                                         LOGGER,
                                                         "{} - Setting new job for height {}",
@@ -322,7 +312,9 @@ impl Server {
                                                 }
                                                 None => {
                                                     self.error = true;
-                                                    let e: RpcError = serde_json::from_value(res.error.unwrap()).unwrap();
+                                                    let e: RpcError =
+                                                        serde_json::from_value(res.error.unwrap())
+                                                            .unwrap();
                                                     // XXX TODO: Send response to the worker
                                                     return Err(e);
                                                 }
@@ -339,7 +331,9 @@ impl Server {
                                                 None => {
                                                     // Server did NOT accept our login
                                                     self.error = true;
-                                                    let e: RpcError = serde_json::from_value(res.error.unwrap()).unwrap();
+                                                    let e: RpcError =
+                                                        serde_json::from_value(res.error.unwrap())
+                                                            .unwrap();
                                                     return Err(e);
                                                 }
                                             }
@@ -352,11 +346,86 @@ impl Server {
                                             return Ok(res.method.clone());
                                         }
                                         "submit" => {
+                                            // For now only submit here need worder_id(w_id)
+
+                                            // This is a response from the upstream Grin Stratum Server
+                                            // Here, we are accepting responses to requests we sent on behalf of a worker
+                                            // The messages 'id' field contains the worker id this response is for
+                                            // We need to process the responses the pool cares about,
+                                            // The pool made this request and it will handle responses (so return the results back up)
+                                            let mut workers_l = workers.lock().unwrap();
+                                            let decode_string = base64::decode(&res.id);
+                                            // can't be wrong
+                                            let utf8: &[u8] = &decode_string.unwrap();
+
+                                            let w_id_usz: usize;
+                                            let height: i32;
+                                            let job_id: u64;
+                                            let _nonce: u64;
+                                            match ::std::str::from_utf8(utf8) {
+                                                Ok(o) => {
+                                                    let v: Vec<&str> = o.split('+').collect();
+                                                    w_id_usz = match v[0].parse::<usize>() {
+                                                        Ok(value) => value,
+                                                        Err(_) => {
+                                                            let e = RpcError {
+                                                                code: -1,
+                                                                message: "Invalid Worker ID"
+                                                                    .to_string(),
+                                                            };
+                                                            return Err(e);
+                                                        }
+                                                    };
+                                                    // cant be wrong
+                                                    height = v[1].parse::<i32>().unwrap();
+                                                    job_id = v[2].parse::<u64>().unwrap();
+                                                    _nonce = v[3].parse::<u64>().unwrap();
+                                                }
+                                                Err(_) => {
+                                                    let e = RpcError {
+                                                        code: -1,
+                                                        message: "Invalid Worker ID".to_string(),
+                                                    };
+                                                    return Err(e);
+                                                }
+                                            }
+                                            info!(
+                                                LOGGER,
+                                                "{}",
+                                                format!(
+                                                    "Successful Split Response ID: [{}, {}, {}, {}]",
+                                                    w_id_usz, height, job_id, _nonce
+                                                )
+                                            );
+                                            // Get the worker index this response is for
+                                            let w_id_o: Option<usize> =
+                                                workers_l.iter().position(|ref i| i.id == w_id_usz);
+                                            let w_id: usize;
+                                            match w_id_o {
+                                                Some(id) => w_id = id,
+                                                _ => {
+                                                    let err_msg = "Null Worker ID".to_string();
+                                                    debug!(LOGGER, "Null Worker ID");
+                                                    self.error = true;
+                                                    let e = RpcError {
+                                                        code: -32600,
+                                                        message: err_msg,
+                                                    };
+                                                    return Err(e);
+                                                }
+                                            };
+
                                             // XXX TODO: Error checking
                                             debug!(LOGGER, "w_id = {}", w_id);
+                                            let result: SubmitResult;
                                             match res.result {
                                                 Some(response) => {
                                                     // The share was accepted
+                                                    // response has two type, one is ok the
+                                                    // other is "block - {HASH}"
+                                                    // ok just mean node accept the share
+                                                    // block - {HASH} mean valid the share and
+                                                    // success
                                                     debug!(
                                                         LOGGER,
                                                         "setting stats for worker id {:?}", res.id
@@ -364,6 +433,7 @@ impl Server {
                                                     workers_l[w_id].status.accepted += 1;
                                                     debug!(LOGGER, "Server accepted our share");
                                                     workers_l[w_id].send_ok(res.method.clone());
+                                                    result = SubmitResult::Accept;
                                                 }
                                                 None => {
                                                     // The share was not accepted, check RpcError.code for reason
@@ -372,7 +442,9 @@ impl Server {
                                                     // -32502: Failed to validate solution
                                                     // -32503: Solution submitted too late
                                                     // XXX TODO - handle more cases?
-                                                    let e: RpcError = serde_json::from_value(res.error.unwrap()).unwrap();
+                                                    let e: RpcError =
+                                                        serde_json::from_value(res.error.unwrap())
+                                                            .unwrap();
                                                     match e.code {
                                                         -32503 => {
                                                             workers_l[w_id].status.stale += 1;
@@ -388,9 +460,25 @@ impl Server {
                                                                 "Server rejected share as invalid"
                                                             );
                                                         }
-                                                    }
+                                                    };
+                                                    result = SubmitResult::Reject;
                                                 }
                                             };
+
+                                            let worker: &Worker = &workers_l[w_id];
+                                            let share = Share::new(
+                                                job_id,
+                                                self.id.clone(),     // sserver id
+                                                worker.addr.clone(), // worker_addr IP:PORT
+                                                w_id,                // worker id
+                                                worker.status.difficulty, // difficulty
+                                                worker.login(),      // fullname
+                                                result,
+                                                height,
+                                                Utc::now().timestamp() as u32,
+                                            );
+                                            // send share to kafka
+                                            self.kafka.send_data(share);
                                             return Ok(res.method.clone());
                                         }
                                         "keepalive" => {

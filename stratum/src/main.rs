@@ -14,6 +14,7 @@
 
 //! Mining Stratum Pool
 
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -29,6 +30,12 @@ extern crate lazy_static;
 #[macro_use]
 extern crate toml;
 extern crate sha2;
+#[macro_use]
+extern crate error_chain;
+extern crate base64;
+extern crate bincode;
+extern crate chrono;
+extern crate kafka;
 
 use bufstream::BufStream;
 use std::error::Error;

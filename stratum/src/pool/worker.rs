@@ -19,6 +19,7 @@
 use bufstream::BufStream;
 use serde_json;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::net::TcpStream;
 
 use pool::logger::LOGGER;
@@ -27,6 +28,66 @@ use pool::proto::{JobTemplate, LoginParams, StratumProtocol, SubmitParams, Worke
 
 // ----------------------------------------
 // Worker Object - a connected stratum client - a miner
+
+fn validate_legal_string(check: &str, legal: &str) -> bool {
+    let legal = legal.replace(" ", "");
+    let legal = legal
+        .split("")
+        .filter(|x| !x.is_empty())
+        .collect::<HashSet<_>>();
+    let check = check.replace(" ", "");
+    let check = check
+        .split("")
+        .filter(|x| !x.is_empty())
+        .collect::<HashSet<_>>();
+    !(check.difference(&legal).collect::<HashSet<_>>().len() > 0)
+}
+
+// Validate fullname
+fn validate_fullname(login_params: &mut LoginParams) -> bool {
+    let splits = login_params
+        .login
+        .split('.')
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
+    let username: &str;
+    let workername: &str;
+    let mut need_reconcat = false;
+    if splits.len() >= 2 {
+        username = splits[0].as_str();
+        workername = splits[1].as_str();
+    } else {
+        need_reconcat = true;
+        username = splits[0].as_str();
+        workername = "__default__";
+    }
+    if validate_username(username) && validate_workername(workername) {
+        if need_reconcat {
+            login_params.login = format!("{}.{}", username, workername);
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn validate_username(username: &str) -> bool {
+    if username.is_empty() || username.len() > 20 {
+        false
+    } else {
+        let legal = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890_";
+        validate_legal_string(username, legal)
+    }
+}
+
+fn validate_workername(workername: &str) -> bool {
+    if workername.is_empty() || workername.len() > 18 {
+        false
+    } else {
+        let legal = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890_.-";
+        validate_legal_string(workername, legal)
+    }
+}
 
 #[derive(Debug)]
 pub struct WorkerConfig {}
@@ -42,11 +103,12 @@ pub struct Worker {
     pub block_status: WorkerStatus, // Totals for current block
     shares: Vec<SubmitParams>,
     pub needs_job: bool,
+    pub addr: String,
 }
 
 impl Worker {
     /// Creates a new Stratum Worker.
-    pub fn new(id: usize, stream: BufStream<TcpStream>) -> Worker {
+    pub fn new(id: usize, addr: String, stream: BufStream<TcpStream>) -> Worker {
         Worker {
             id: id,
             login: None,
@@ -58,12 +120,17 @@ impl Worker {
             block_status: WorkerStatus::new(id.to_string()),
             shares: Vec::new(),
             needs_job: true,
+            addr: addr,
         }
     }
 
     /// Is the worker in error state?
     pub fn error(&self) -> bool {
         return self.error;
+    }
+
+    pub fn set_error(&mut self) {
+        self.error = true;
     }
 
     /// get the id
@@ -74,7 +141,7 @@ impl Worker {
     /// Get worker login
     pub fn login(&self) -> String {
         match self.login {
-            None => "None".to_string(),
+            None => "None.__default__".to_string(),
             Some(ref login) => login.login.clone(),
         }
     }
@@ -181,19 +248,27 @@ impl Worker {
                                         return Err("invalid request".to_string());
                                     }
                                 };
-                                let login_params: LoginParams = match serde_json::from_value(params)
-                                {
-                                    Ok(p) => p,
-                                    Err(e) => {
-                                        self.error = true;
-                                        // XXX TODO: Invalid request
-                                        return Err(e.to_string());
-                                    }
-                                };
+                                let mut login_params: LoginParams =
+                                    match serde_json::from_value(params) {
+                                        Ok(p) => p,
+                                        Err(e) => {
+                                            self.error = true;
+                                            // XXX TODO: Invalid request
+                                            return Err(e.to_string());
+                                        }
+                                    };
                                 // XXX TODO: Validate the login - is it a valid grin wallet address?
-                                self.login = Some(login_params);
-                                // We accepted the login, send ok result
-                                self.send_ok(req.method);
+                                if validate_fullname(&mut login_params) {
+                                    self.login = Some(login_params);
+                                    // We accepted the login, send ok result
+                                    self.send_ok(req.method);
+                                } else {
+                                    warn!(
+                                        LOGGER,
+                                        "Worker {} - Is Invalid Name.", login_params.login
+                                    );
+                                    return Err("invalid worker name".to_string());
+                                }
                             }
                             "getjobtemplate" => {
                                 debug!(LOGGER, "Worker {} - Accepting request for job", self.id);
@@ -202,12 +277,11 @@ impl Worker {
                             "submit" => {
                                 debug!(LOGGER, "Worker {} - Accepting share", self.id);
                                 match serde_json::from_value(req.params.unwrap()) {
-					Result::Ok(share) => {
-                           			self.shares.push(share);
-					},
-					Result::Err(err) => { }
-				};
-					
+                                    Result::Ok(share) => {
+                                        self.shares.push(share);
+                                    }
+                                    Result::Err(err) => {}
+                                };
                             }
                             "status" => {
                                 trace!(LOGGER, "Worker {} - Accepting status request", self.id);
