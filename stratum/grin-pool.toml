@@ -10,7 +10,8 @@
 #
 # Configuration for the Stratum Pool
 [grin_pool]
-log_dir = "/usr/local/var/"
+#log_dir = "/usr/local/var/"
+log_dir = "/stratum"
 
 [workers]
 listen_address = "0.0.0.0"
