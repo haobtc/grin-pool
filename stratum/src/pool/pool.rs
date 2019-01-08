@@ -187,7 +187,15 @@ impl Pool {
     fn process_worker_messages(&mut self) {
         let mut workers_l = self.workers.lock().unwrap();
         for worker in workers_l.iter_mut() {
-            let _ = worker.process_messages();
+            let result = worker.process_messages();
+            match result {
+                Err(ref s) if s == "invalid worker name" => {
+                    warn!(LOGGER, "Remove worker id: {}", worker.id);
+                    worker.set_error();
+                }
+                Ok(_) => {}
+                Err(_) => {}
+            }
         }
     }
 

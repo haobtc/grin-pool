@@ -53,7 +53,7 @@ fn validate_fullname(login_params: &mut LoginParams) -> bool {
     let username: &str;
     let workername: &str;
     let mut need_reconcat = false;
-    if splits.len() > 2 {
+    if splits.len() >= 2 {
         username = splits[0].as_str();
         workername = splits[1].as_str();
     } else {
@@ -127,6 +127,10 @@ impl Worker {
     /// Is the worker in error state?
     pub fn error(&self) -> bool {
         return self.error;
+    }
+
+    pub fn set_error(&mut self) {
+        self.error = true;
     }
 
     /// get the id
@@ -263,7 +267,7 @@ impl Worker {
                                         LOGGER,
                                         "Worker {} - Is Invalid Name.", login_params.login
                                     );
-                                    return Err("invalid worker name.".to_string());
+                                    return Err("invalid worker name".to_string());
                                 }
                             }
                             "getjobtemplate" => {
