@@ -25,7 +25,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use toml;
 
-const CONFIG_FILE_NAME: &'static str = "grin-pool.toml";
+const CONFIG_FILE_NAME: &'static str = ".grin-pool.toml";
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
