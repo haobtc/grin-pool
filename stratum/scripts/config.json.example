@@ -1,0 +1,7 @@
+{
+    "wallet_directory": "/where/is/your/wallet_data",
+    "hosts": [
+        "ip_address"
+    ],
+    "backup_directory": "/where/is/your/backup_directory"
+}
