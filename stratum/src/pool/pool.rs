@@ -264,7 +264,9 @@ impl Pool {
                                 share.get_height(),
                                 Utc::now().timestamp() as u32,
                             );
-                            self.server.get_kafka().send_data(send_share);
+                            self.server
+                                .get_kafka()
+                                .send_data(share.get_edgebits(), send_share);
                             continue;
                         } else {
                             self.duplicates.insert(share.pow.clone(), worker.id());

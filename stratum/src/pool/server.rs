@@ -362,6 +362,7 @@ impl Server {
                                             let height: i32;
                                             let job_id: u64;
                                             let _nonce: u64;
+                                            let edge_bits: u32;
                                             match ::std::str::from_utf8(utf8) {
                                                 Ok(o) => {
                                                     let v: Vec<&str> = o.split('+').collect();
@@ -380,6 +381,7 @@ impl Server {
                                                     height = v[1].parse::<i32>().unwrap();
                                                     job_id = v[2].parse::<u64>().unwrap();
                                                     _nonce = v[3].parse::<u64>().unwrap();
+                                                    edge_bits = v[4].parse::<u32>().unwrap();
                                                 }
                                                 Err(_) => {
                                                     let e = RpcError {
@@ -393,8 +395,8 @@ impl Server {
                                                 LOGGER,
                                                 "{}",
                                                 format!(
-                                                    "Successful Split Response ID: [{}, {}, {}, {}]",
-                                                    w_id_usz, height, job_id, _nonce
+                                                    "Successful Split Response ID: [{}, {}, {}, {}, {}]",
+                                                    w_id_usz, height, job_id, _nonce, edge_bits
                                                 )
                                             );
                                             // Get the worker index this response is for
@@ -478,7 +480,7 @@ impl Server {
                                                 Utc::now().timestamp() as u32,
                                             );
                                             // send share to kafka
-                                            self.kafka.send_data(share);
+                                            self.kafka.send_data(edge_bits, share);
                                             return Ok(res.method.clone());
                                         }
                                         "keepalive" => {

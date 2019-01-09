@@ -31,7 +31,7 @@ impl AsBytes for ShareWrapper {
 }
 
 pub struct KafkaProducer {
-    pub topic: String,
+    pub topics: HashMap<String, String>,
     pub client: Producer,
     pub partitions: i32,
 }
@@ -106,7 +106,7 @@ fn to_number<N: FromStr>(s: Option<&String>, _default: N) -> Result<N> {
 pub trait GrinProducer {
     fn from_config(config: &ProducerConfig) -> KafkaProducer;
 
-    fn send_data(&mut self, share: Share) -> Result<()>;
+    fn send_data(&mut self, edge_bits: u32, share: Share) -> Result<()>;
 }
 
 impl GrinProducer for KafkaProducer {
@@ -140,7 +140,7 @@ impl GrinProducer for KafkaProducer {
                 };
 
                 KafkaProducer {
-                    topic: cfg.topic.clone(),
+                    topics: cfg.topics.clone(),
                     partitions: cfg.partitions,
                     client: producer,
                 }
@@ -149,8 +149,9 @@ impl GrinProducer for KafkaProducer {
         }
     }
 
-    fn send_data(&mut self, share: Share) -> Result<()> {
-        let record = Record::from_value(&self.topic, ShareWrapper::new(&share));
+    fn send_data(&mut self, edge_bits: u32, share: Share) -> Result<()> {
+        let topic: Option<&String> = self.topics.get(&edge_bits.to_string());
+        let record = Record::from_value(&topic.unwrap(), ShareWrapper::new(&share));
         self.client.send(&record)?;
         Ok(())
     }
@@ -186,7 +187,7 @@ mod test {
             10,
             4,
         );
-        let result = kafka_producer.send_data(share);
+        let result = kafka_producer.send_data(29, share);
         assert_eq!(result.is_ok(), true, "{}", format!("{:?}", result));
     }
 
@@ -212,7 +213,7 @@ mod test {
         let mut inner = Inner {
             producer: kafka_producer,
         };
-        let result = inner.producer.send_data(share.clone());
+        let result = inner.producer.send_data(29, share.clone());
         assert_eq!(result.is_ok(), true, "{}", format!("{:?}", result));
 
         let cfg: &ProducerConfig = &config.producer;

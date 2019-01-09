@@ -4,6 +4,8 @@ use std::vec::Vec;
 use super::LargeArray;
 
 const FULLNAME_LIMIT: usize = 46;
+const SECONDARY: u32 = 29;
+const PRIMARY: u32 = 31;
 
 #[repr(i32)]
 #[derive(Debug)]
